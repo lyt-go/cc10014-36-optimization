@@ -46,6 +46,22 @@ def export_entries() -> StreamingResponse:
                              headers={"Content-Disposition": "attachment; filename=snapshot_mgr.csv"})
 
 
+@router.get("/archive-batches")
+def list_archive_batches(
+    table: str | None = Query(default=None, description="按目标表名过滤"),
+) -> dict[str, Any]:
+    """跨模块读取冷分区归档批次表：批次边界、归档路径与可恢复标记。"""
+    from app.services.cold_archive import ColdArchiveService
+    items = ColdArchiveService().list_archive_batches(table=table)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/expired/archive")
+def archive_expired_snapshots() -> dict[str, Any]:
+    """归档过期快照，并回读批次表的可恢复路径；重试会跳过已归档快照。"""
+    return service.archive_expired_snapshots()
+
+
 @router.get("/{entry_id}")
 def get_entry(entry_id: int) -> dict:
     entry = service.get_entry(entry_id)

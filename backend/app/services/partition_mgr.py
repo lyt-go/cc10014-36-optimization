@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.partition_boundary import build_partition_analysis
 from app.store import store
 
 MODULE = "partition_mgr"
 LIST_FIELDS = ["策略编号", "目标表名", "分区字段", "分区粒度", "保留天数", "冷热阈值", "预建数量", "目录规则"]
 REQUIRED_FIELDS = ["策略编号", "目标表名"]
-STATUS_ORDER = ["草稿", "待校验", "已生效", "已废弃"]
-ACTION_RULES = {"提交校验": "待校验", "标记生效": "已生效", "标记废弃": "已废弃"}
-NEGATIVE_ACTIONS = []
+STATUS_ORDER = ["草稿", "待校验", "已生效", "已停用"]
+ACTION_RULES = {"提交校验": "待校验", "标记生效": "已生效", "停用策略": "已停用"}
+NEGATIVE_ACTIONS = ["停用策略"]
 
 
 class PartitionMgrService:
@@ -64,24 +65,38 @@ class PartitionMgrService:
         return entry, f"分区策略已{action}"
 
     def get_cold_partitions(self, entry_id: int) -> list[dict[str, Any]]:
-        """返回该策略下应归档的冷分区列表（模拟）。"""
+        """返回该策略下应归档的冷分区列表；缺日期分区不参与判定。"""
+        return self.analyze_partitions(entry_id)["待归档分区"]
+
+    def analyze_partitions(self, entry_id: int) -> dict[str, Any]:
+        """按分区边界分析表数据：冷/热、归档边界、保留期边界与缺日期清单。
+
+        缺日期分区只进入空日期清单，不参与“最新分区”和保留期计算，避免保留策略误判。
+        """
         entry = self.get_entry(entry_id)
         if not entry:
-            return []
-        threshold = int(entry.get("冷热阈值", "30") or "30")
-        table = entry.get("目标表名", "")
-        rows = store.table_rows(table)
-        partitions: dict[str, int] = {}
-        for row in rows:
-            p = str(row.get("dt", ""))
-            if p:
-                partitions[p] = partitions.get(p, 0) + 1
-        result = []
-        for p, cnt in partitions.items():
-            result.append({
-                "partition": p,
-                "row_count": cnt,
-                "is_cold": True,  # 简化：全部视为可归档
-                "threshold_days": threshold,
-            })
-        return result
+            return {
+                "状态": "异常",
+                "说明": f"分区策略 {entry_id} 不存在或已归档",
+                "分区清单": [], "待归档分区": [], "边界分区": None,
+                "保留期边界分区": None, "最新分区": None, "空日期清单": [],
+                "空日期行数": 0, "空日期数量": 0, "空日期参与保留期计算": False,
+            }
+        threshold = _as_int(entry.get("冷热阈值"), 30)
+        retention = _as_int(entry.get("保留天数"), 365)
+        table = str(entry.get("目标表名", ""))
+        analysis = build_partition_analysis(
+            store.table_rows(table),
+            cold_threshold_days=threshold,
+            retention_days=retention,
+        )
+        analysis["策略编号"] = entry.get("策略编号", "")
+        analysis["目标表名"] = table
+        return analysis
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default

@@ -70,3 +70,21 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .analysis-chart { display: flex; align-items: flex-end; gap: 8px; height: 160px; padding: 12px 0; }
 .analysis-bar { flex: 1; border-radius: 4px 4px 0 0; background: var(--brand); min-width: 24px; position: relative; transition: height 0.4s; }
 .analysis-bar span { position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); white-space: nowrap; }
+/* 冷分区归档批次面板 */
+.batch-panel { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; }
+.batch-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.batch-head h3 { margin: 0; font-size: 15px; }
+.batch-size span { display: block; font-size: 12px; color: var(--muted); }
+.batch-size input, .batch-select { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; background: #fff; }
+.batch-size input { width: 88px; }
+.batch-summary { display: flex; flex-wrap: wrap; gap: 16px; margin: 10px 0; font-size: 12px; color: var(--muted); }
+.batch-result { display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
+.batch-state { min-width: 140px; }
+.batch-state strong { font-size: 14px; }
+.batch-empty { flex-basis: 100%; }
+.batch-empty ul { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+.batch-conflict { border: 1px solid #f0c36d; background: #fffbeb; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+.conflict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+.conflict-grid p { margin: 4px 0 0; }
+.conflict-note { margin: 8px 0 0; color: #92400e; font-size: 12px; }
+.batch-table td { font-size: 12px; }

@@ -65,6 +65,14 @@ def export_entries(
         headers={"Content-Disposition": 'attachment; filename="partition_mgr.csv"'})
 
 
+@router.get("/{entry_id}/partitions", response_model=dict)
+def get_partitions(entry_id: int) -> dict:
+    """按分区边界分析目标表：待归档冷分区、边界分区、保留期边界与缺日期清单。"""
+    analysis = service.analyze_partitions(entry_id)
+    if analysis.get("状态") == "异常":
+        raise HTTPException(status_code=404, detail=analysis["说明"])
+    return analysis
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条分区策略明细；不存在时给出可读的错误说明。"""

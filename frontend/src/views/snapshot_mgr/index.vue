@@ -26,6 +26,46 @@
       <strong>{{ selectedItem.name || selectedItem.label }}</strong> — 状态：{{ selectedItem.status }}
       <div style="margin-top:4px;">{{ selectedItem.logs || '暂无日志' }}</div>
     </div>
+    <section class="batch-panel" data-testid="snapshot-batch-panel">
+      <header class="batch-head">
+        <div>
+          <h3>冷分区归档批次表</h3>
+          <p class="page-desc">跨模块读取冷热归档的批次边界、归档路径与可恢复标记，用于复核归档策略结果。</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn" type="button" data-testid="reload-archive-batches" @click="loadArchiveBatches">刷新批次表</button>
+          <button class="btn primary" type="button" data-testid="archive-expired" :disabled="archivingExpired" @click="archiveExpired">
+            {{ archivingExpired ? '归档中…' : '归档过期快照' }}
+          </button>
+        </div>
+      </header>
+      <div class="batch-summary">
+        <span>批次 {{ archiveBatches.length }} 个</span>
+        <span v-if="archiveMessage" data-testid="archive-message">{{ archiveMessage }}</span>
+      </div>
+      <table class="data-table batch-table" data-testid="snapshot-batch-table">
+        <thead>
+          <tr><th>批次编号</th><th>目标表名</th><th>分区边界</th><th>归档路径</th><th>可恢复标记</th><th>归档结果</th></tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="batch in archiveBatches"
+            :key="batch.批次编号"
+            :data-testid="`snapshot-batch-${batch.批次编号}`"
+          >
+            <td>{{ batch.批次编号 }}</td>
+            <td>{{ batch.目标表名 }}</td>
+            <td>{{ formatBoundary(batch.分区边界) }}</td>
+            <td>{{ batch.归档路径 }}</td>
+            <td>{{ batch.可恢复标记 }}</td>
+            <td>{{ batch.归档结果 }}</td>
+          </tr>
+          <tr v-if="!archiveBatches.length">
+            <td colspan="6" class="empty-state" data-testid="snapshot-batch-empty">暂无冷分区归档批次</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
     <div v-if="showCreate" class="modal-backdrop" data-testid="create-modal">
       <form class="modal" @submit.prevent="submitCreate"><h3>登记数据快照</h3>
         <label v-for="field in columns.slice(0,3)" :key="field" class="create-field"><span>{{ field }}</span><input v-model="createValues[field]" :placeholder="`请输入${field}`" required /></label>
@@ -49,6 +89,39 @@ const dateFrom = ref(''); const dateTo = ref('')
 const errorMessage = ref(''); const showCreate = ref(false)
 const createValues = ref<Record<string,string>>({})
 const allItems = ref<any[]>([])
+const archiveBatches = ref<any[]>([])
+const archiveMessage = ref('')
+const archivingExpired = ref(false)
+function formatBoundary(boundary: any): string {
+  if (!boundary) return '—'
+  if (boundary.起始分区 && boundary.结束分区) return `${boundary.起始分区} ~ ${boundary.结束分区}`
+  return String(boundary.partition ?? boundary.分区 ?? '—')
+}
+async function loadArchiveBatches() {
+  try {
+    const res = await request('/api/snapshot_mgr/archive-batches')
+    if (!res.ok) throw new Error('批次表读取失败')
+    const data = await res.json()
+    archiveBatches.value = data.items || []
+    if (!archiveBatches.value.length) archiveMessage.value = '暂无冷分区归档批次'
+  } catch (e: any) {
+    archiveMessage.value = e.message || '批次表读取失败'
+  }
+}
+async function archiveExpired() {
+  archivingExpired.value = true
+  archiveMessage.value = ''
+  try {
+    const res = await request('/api/snapshot_mgr/expired/archive', { method: 'POST' })
+    const data = await res.json()
+    archiveMessage.value = data.message || ''
+    await Promise.all([reload(), loadArchiveBatches()])
+  } catch (e: any) {
+    archiveMessage.value = e.message || '归档过期快照失败'
+  } finally {
+    archivingExpired.value = false
+  }
+}
 function barLeft(item: any) { const all = allItems.value.filter(i => i.start && i.end); if(!all.length) return 0; const min = Math.min(...all.map(i => new Date(i.start).getTime())); const max = Math.max(...all.map(i => new Date(i.end).getTime())); const range = max - min || 86400000; return ((new Date(item.start).getTime() - min) / range) * 100 }
 function barWidth(item: any) { const all = allItems.value.filter(i => i.start && i.end); if(!all.length) return 20; const min = Math.min(...all.map(i => new Date(i.start).getTime())); const max = Math.max(...all.map(i => new Date(i.end).getTime())); const range = max - min || 86400000; return Math.max(5, ((new Date(item.end).getTime() - new Date(item.start).getTime()) / range) * 100) }
 function selectItem(item: any) { selectedItem.value = selectedItem.value?.id === item.id ? null : item }
@@ -66,5 +139,8 @@ async function submitCreate() {
   try { const res = await request(ENDPOINT, { method: 'POST', body: JSON.stringify({ values: createValues.value }) }); if(!res.ok) throw new Error('创建失败'); showCreate.value = false; await reload() } catch(e: any) { errorMessage.value = e.message }
 }
 function exportRows() { window.open(`${ENDPOINT}/export`, '_blank') }
-onMounted(reload)
+onMounted(() => {
+  void reload()
+  void loadArchiveBatches()
+})
 </script>

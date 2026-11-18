@@ -106,24 +106,51 @@ class SnapshotMgrService:
         return expired
 
     def archive_expired_snapshots(self) -> dict[str, Any]:
-        """对过期快照自动触发归档。"""
+        """对过期快照自动触发归档，并回读冷分区归档批次表的可恢复路径。"""
         expired = self.check_expired_snapshots()
         if not expired:
-            return {"ok": True, "message": "无过期快照", "archived": 0}
+            return {"ok": True, "message": "无过期快照", "archived": 0, "items": [], "failed": [], "retryable": False}
         from app.services.cold_archive import ColdArchiveService
         ca = ColdArchiveService()
         archived = 0
+        skipped: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        items: list[dict[str, Any]] = []
         for snap in expired:
             dataset = snap.get("目标数据集", "")
             # 找到对应归档策略
             arc_entry = store.find_by_field("cold_archive", "目标表名", dataset)
-            if arc_entry:
-                ca.execute_archive(arc_entry["id"], snap.get("快照编号", ""))
-                archived += 1
-                snap["status"] = "已归档"
-                # 更新store中的快照状态
-                for r in store.rows(MODULE):
-                    if r.get("id") == snap.get("id"):
-                        r["status"] = "已归档"
-                        break
-        return {"ok": True, "message": f"已归档 {archived} 个过期快照", "archived": archived}
+            if not arc_entry:
+                failed.append({"快照编号": snap.get("快照编号", ""), "说明": "没有匹配的归档策略"})
+                continue
+            if any(record.get("snapshot_id") == snap.get("快照编号", "")
+                   for record in store.get_archive_records()):
+                skipped.append({"快照编号": snap.get("快照编号", ""), "说明": "已归档，跳过重复归档"})
+                continue
+            result = ca.execute_archive(arc_entry["id"], snap.get("快照编号", ""))
+            if not result.get("ok"):
+                failed.append({"快照编号": snap.get("快照编号", ""), "说明": result.get("message", "归档失败")})
+                continue
+            archived += 1
+            record = result.get("record", {})
+            items.append({
+                "快照编号": snap.get("快照编号", ""),
+                "归档记录编号": record.get("archive_id", ""),
+                "归档路径": record.get("path", ""),
+                # 批次表与归档记录同时落库，可恢复标记从这里读取。
+                "可恢复标记": "可恢复" if record.get("restorable") else "不可恢复",
+            })
+            snap["status"] = "已归档"
+            for r in store.rows(MODULE):
+                if r.get("id") == snap.get("id"):
+                    r["status"] = "已归档"
+                    break
+        message = f"已归档 {archived} 个过期快照"
+        if skipped:
+            message += f"，{len(skipped)} 个已归档跳过"
+        if failed:
+            message += f"，{len(failed)} 个失败；重试会跳过已归档快照"
+        return {
+            "ok": not failed, "message": message, "archived": archived,
+            "items": items, "skipped": skipped, "failed": failed, "retryable": bool(failed),
+        }

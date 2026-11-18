@@ -1,7 +1,35 @@
 """示例数据：每个模块给几条不同状态的记录，数据之间有真实关联，方便起服务后立刻看到链路。"""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Any
+
+
+def seed_table_data(today: date | None = None) -> dict[str, list[dict[str, Any]]]:
+    """分层表的模拟行数据。
+
+    分区日期按运行当天回推，保证冷热边界随环境日期变化；每条表数据都保留一个缺日期
+    分区，用来演示“缺日期分区不参与保留期计算”。
+    """
+    today = today or date.today()
+
+    def days_ago(days: int) -> str:
+        return (today - timedelta(days=days)).isoformat()
+
+    def rows(table: str, key: str) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for partition, count in ((days_ago(5), 2), (days_ago(40), 3), (days_ago(70), 4)):
+            result.extend({key: f"{table}-{partition}-{i}", "dt": partition} for i in range(count))
+        # 缺日期分区：dt 为空，归档批次表只登记到空日期清单。
+        result.extend({key: f"{table}-nodate-{i}", "dt": ""} for i in range(2))
+        return result
+
+    return {
+        "ods_orders": rows("order", "order_id"),
+        "ods_payments": rows("pay", "pay_id"),
+        "ods_users": rows("user", "user_id"),
+    }
+
 
 SEED_ROWS: dict[str, list[dict[str, Any]]] = {
     "raw_ingest": [
